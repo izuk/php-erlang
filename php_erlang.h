@@ -13,10 +13,14 @@
 
 #include "ei.h"
 
+// Utility functions.
+zval * php_erlang_decode( ei_x_buff * x );
+int php_erlang_encode_term( ei_x_buff * x, char * fmt, int * idx, HashTable * arr, HashPosition * point );
+
 ZEND_BEGIN_MODULE_GLOBALS(erlang)
 ei_cnode ec;
-int fd;
 int instance;
+int fd;
 ZEND_END_MODULE_GLOBALS(erlang)
 
 #ifdef ZTS
@@ -27,6 +31,10 @@ ZEND_END_MODULE_GLOBALS(erlang)
 
 #define PHP_ERLANG_X_BUFF_RES_NAME "Erlang X-Buff"
 #define PHP_ERLANG_PID_RES_NAME "Erlang PID"
+
+// Resources.
+extern int le_erlang_x_buff;
+extern int le_erlang_pid;
 
 PHP_MINIT_FUNCTION(erlang);
 PHP_MSHUTDOWN_FUNCTION(erlang);

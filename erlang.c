@@ -2,6 +2,8 @@
 #include "config.h"
 #endif
 
+#include <stdlib.h>
+
 #include "php.h"
 #include "php_ini.h"
 #include "php_erlang.h"
@@ -13,6 +15,7 @@ ZEND_DECLARE_MODULE_GLOBALS(erlang)
 
 static function_entry erlang_functions[] = {
     PHP_FE(erlang_init, NULL)
+    PHP_FE(erlang_self, NULL)
     PHP_FE(erlang_term, NULL)
     PHP_FE(erlang_extract, NULL)
     PHP_FE(erlang_send, NULL)
@@ -48,6 +51,7 @@ PHP_INI_ENTRY("erlang.node", "erts@localhost", PHP_INI_SYSTEM, NULL)
 PHP_INI_END()
 
 static void php_erlang_init_globals( zend_erlang_globals *erlang_globals ) {
+    erlang_globals->instance = 0;
     erlang_globals->fd = 0;
 }
 
@@ -82,76 +86,59 @@ PHP_RINIT_FUNCTION(erlang)
 
 PHP_RSHUTDOWN_FUNCTION(erlang)
 {
+    fflush( stderr );
+
     return SUCCESS;
 }
 
 PHP_FUNCTION(erlang_init)
 {
+    char * node;
     int fd;
 
-    ei_x_buff x;
-    erlang_msg msg;
     int ret;
-
-    int loop = 1;
+    char buff[ 100 ];
 
     fd = ERLANG_G(fd);
 
-    // Check whether the link is still alive.
     if( fd > 0 ) {
-        ei_x_new( & x );
-        while( loop ) {
-            ret = ei_xreceive_msg_tmo( ERLANG_G(fd), & msg, & x, 1 );
-            switch( ret ) {
-            case ERL_TICK:
-                break;
-            case ERL_MSG:
-                switch( msg.msgtype ) {
-                case ERL_SEND:
-                case ERL_REG_SEND:
-                case ERL_LINK:
-                    break;
-                case ERL_UNLINK:
-                case ERL_EXIT:
-                case ERL_EXIT2:
+        // Check connection.
+        php_error( E_NOTICE, "checking connection" );
+        while( 1 ) {
+            ret = ei_receive_tmo( fd, buff, 100, 1 );
+            if( ret == ERL_ERROR ) {
+                if( erl_errno != ETIMEDOUT ) {
+                    php_error( E_NOTICE, "persistent connection timed out" );
+                    close( fd );
                     fd = 0;
-                    loop = 0;
-                    break;
-                default:
-                    php_error_docref( NULL TSRMLS_CC, E_WARNING, "unknown message received" );
-                    fd = 0;
-                    loop = 0;
-                }
-            case ERL_ERROR:
-                if( erl_errno == ETIMEDOUT ) {
-                    // This is really the desired exit point.
-                    loop = 0;
-                } else {
-                    php_error_docref( NULL TSRMLS_CC, E_WARNING, "error reading persistent connection" );
-                    fd = 0;
-                    loop = 0;
                 }
                 break;
-            default:
-                php_error_docref( NULL TSRMLS_CC, E_ERROR, "unknown message on init" );
-                fd = 0;
-                loop = 0;
             }
         }
-        ei_x_free( & x );
     }
 
     if( fd == 0 ) {
-        ei_connect_init( & ERLANG_G(ec), "mynodename", INI_STR("erlang.cookie"), 0 );
-        fd = ei_connect( & ERLANG_G(ec), INI_STR("erlang.node") );
+
+        sprintf( buff, "php%010d%05d", (int) getpid(), ERLANG_G(instance)++ );
+        ei_connect_init( & ERLANG_G(ec), buff, INI_STR("erlang.cookie"), 0 );
+
+        php_error( E_NOTICE, "init %s %s %s",
+                   ei_thisnodename( & ERLANG_G(ec) ),
+                   ei_thishostname( & ERLANG_G(ec) ),
+                   ei_thisalivename( & ERLANG_G(ec) ) );
+
+        node = INI_STR("erlang.node");
+        fd = ei_connect( & ERLANG_G(ec), node );
+
         if( fd < 0 ) {
-            php_error_docref( NULL TSRMLS_CC, E_ERROR, "couldn't connect to Erlang node" );
-            ERLANG_G(fd) = 0;
+            php_error( E_ERROR, "couldn't connect to Erlang node `%s' %d", node, erl_errno );
             RETURN_FALSE;
         }
-    }
 
-    ERLANG_G(fd) = fd;
+        php_error( E_NOTICE, "connected to Erlang node `%s'", node );
+
+        ERLANG_G(fd) = fd;
+    }
 
     RETURN_TRUE;
 }
@@ -167,106 +154,33 @@ PHP_FUNCTION(erlang_term)
 {
     ei_x_buff * x;
 
-    char * atom;
+    char * fmt;
     int len;
+    int idx = 0;
 
-    if( zend_parse_parameters( ZEND_NUM_ARGS() TSRMLS_CC, "s", & atom, & len ) == FAILURE ) {
+    zval * z;
+    HashTable * arr;
+    HashPosition point;
+
+    int ret;
+
+    if( zend_parse_parameters( ZEND_NUM_ARGS() TSRMLS_CC, "sa", & fmt, & len, & z ) == FAILURE ) {
         RETURN_FALSE;
     }
 
+    arr = Z_ARRVAL_P(z);
+    zend_hash_internal_pointer_reset_ex( arr, & point );
+
     x = emalloc( sizeof( ei_x_buff ) );
-
     ei_x_new_with_version( x );
-    ei_x_encode_tuple_header( x, 2 );
-    ei_x_encode_pid( x, ei_self( & ERLANG_G(ec) ) );
-    ei_x_encode_atom( x, atom );
 
-    ZEND_REGISTER_RESOURCE(return_value, x, le_erlang_x_buff);
-}
-
-zval * php_erl_decode( ei_x_buff * x ) {
-
-    zval * z, * z0;
-
-    int type;
-    int size;
-
-    char * buff;
-
-    long long_value;
-    double double_value;
-
-    int i;
-
-    ALLOC_INIT_ZVAL(z);
-
-    ei_get_type( x->buff, & x->index, & type, & size );
-
-    switch( type ) {
-    case ERL_ATOM_EXT:
-        buff = emalloc( size + 1 );
-        ei_decode_atom( x->buff, & x->index, buff );
-        buff[ size ] = '\0';
-        ZVAL_STRING(z, buff, 0);
-        break;
-    case ERL_STRING_EXT:
-        buff = emalloc( size + 1 );
-        ei_decode_string( x->buff, & x->index, buff );
-        buff[ size ] = '\0';
-        ZVAL_STRING(z, buff, 0);
-        break;
-    case ERL_PID_EXT:
-        buff = emalloc( sizeof( erlang_pid ) );
-        ei_decode_pid( x->buff, & x->index, (erlang_pid *) buff );
-        ALLOC_INIT_ZVAL(z);
-        ZEND_REGISTER_RESOURCE(z, buff, le_erlang_pid);
-        break;
-    case ERL_SMALL_INTEGER_EXT:
-    case ERL_INTEGER_EXT:
-        ei_decode_long( x->buff, & x->index, & long_value );
-        ZVAL_LONG(z, long_value);
-        break;
-    case ERL_FLOAT_EXT:
-        ei_decode_double( x->buff, & x->index, & double_value );
-        ZVAL_DOUBLE(z, double_value);
-        break;
-    case ERL_SMALL_TUPLE_EXT:
-    case ERL_LARGE_TUPLE_EXT:
-        array_init( z );
-        ei_decode_tuple_header( x->buff, & x->index, & size );
-        for( i = 1; i <= size; i++ ) {
-            z0 = php_erl_decode( x );
-            if( z0 == NULL ) { return NULL; }
-            add_next_index_zval( z, z0 );
-        }
-        break;
-    case ERL_NIL_EXT:
-    case ERL_LIST_EXT:
-        array_init( z );
-        ei_decode_list_header( x->buff, & x->index, & size );
-        while( size > 0 ) {
-            for( i = 1; i <= size; i++ ) {
-                z0 = php_erl_decode( x );
-                if( z0 == NULL ) { return NULL; }
-                add_next_index_zval( z, z0 );
-            }
-            ei_decode_list_header( x->buff, & x->index, & size );
-        }
-        break;
-    case ERL_REFERENCE_EXT:
-    case ERL_NEW_REFERENCE_EXT:
-    case ERL_PORT_EXT:
-    case ERL_BINARY_EXT:
-    case ERL_SMALL_BIG_EXT:
-    case ERL_LARGE_BIG_EXT:
-    case ERL_NEW_FUN_EXT:
-    case ERL_FUN_EXT:
-    default:
-        php_error_docref( NULL TSRMLS_CC, E_ERROR, "unsupported return type" );
-        return NULL;
+    ret = php_erlang_encode_term( x, fmt, & idx, arr, & point );
+    if( ret < 0 ) {
+        php_error( E_ERROR, "problem parsing term format `%s' at position %d", fmt, idx );
+        RETURN_FALSE;
     }
 
-    return z;
+    ZEND_REGISTER_RESOURCE(return_value, x, le_erlang_x_buff);
 }
 
 PHP_FUNCTION(erlang_extract)
@@ -285,7 +199,7 @@ PHP_FUNCTION(erlang_extract)
     x->index = 0;
     ei_decode_version( x->buff, & x->index, & version );
 
-    ret = php_erl_decode( x );
+    ret = php_erlang_decode( x );
     if( ret == NULL ) {
         RETURN_FALSE;
     } else {
@@ -303,7 +217,7 @@ PHP_FUNCTION(erlang_send)
     int ret;
 
     if( ERLANG_G(fd) == 0 ) {
-        php_error_docref( NULL TSRMLS_CC, E_ERROR, "not connected to an Erlang node" );
+        php_error( E_ERROR, "not connected to an Erlang node" );
         RETURN_FALSE;
     }
 
@@ -316,7 +230,7 @@ PHP_FUNCTION(erlang_send)
 
     ret = ei_send_tmo( ERLANG_G(fd), pid, x->buff, x->index, timeout );
     if( ret < 0 ) {
-        php_error_docref( NULL TSRMLS_CC, E_WARNING, "error sending message" );
+        php_error( E_WARNING, "error [%d] sending message", ret );
         RETURN_FALSE;
     }
 
@@ -335,7 +249,7 @@ PHP_FUNCTION(erlang_send_reg)
     int ret;
 
     if( ERLANG_G(fd) == 0 ) {
-        php_error_docref( NULL TSRMLS_CC, E_ERROR, "not connected to an Erlang node" );
+        php_error( E_ERROR, "not connected to an Erlang node" );
         RETURN_FALSE;
     }
 
@@ -348,7 +262,7 @@ PHP_FUNCTION(erlang_send_reg)
     ret = ei_reg_send_tmo( & ERLANG_G(ec), ERLANG_G(fd), name, x->buff, x->index, timeout );
 
     if( ret < 0 ) {
-        php_error_docref( NULL TSRMLS_CC, E_ERROR, "error sending message" );
+        php_error( E_ERROR, "error sending message" );
         RETURN_FALSE;
     }
 
@@ -364,7 +278,7 @@ PHP_FUNCTION(erlang_receive)
     int ret;
 
     if( ERLANG_G(fd) == 0 ) {
-        php_error_docref( NULL TSRMLS_CC, E_ERROR, "not connected to an Erlang node" );
+        php_error( E_ERROR, "not connected to an Erlang node" );
         RETURN_FALSE;
     }
 
@@ -385,14 +299,21 @@ PHP_FUNCTION(erlang_receive)
                 ZEND_REGISTER_RESOURCE(return_value, x, le_erlang_x_buff);
                 return;
             } else {
-                php_error_docref( NULL TSRMLS_CC, E_WARNING, "unknown message received" );
+                php_error( E_WARNING, "unknown message type [%d] received", msg.msgtype );
                 ei_x_free( x );
                 efree( x );
                 RETURN_FALSE;
             }
             break;
+        case ERL_ERROR:
+            if( erl_errno != ETIMEDOUT ) {
+                php_error( E_ERROR, "error [%d] reading message", erl_errno );
+            }
+            ei_x_free( x );
+            efree( x );
+            RETURN_FALSE;
         default:
-            php_error_docref( NULL TSRMLS_CC, E_ERROR, "unknown message received" );
+            php_error( E_ERROR, "error [%d, %d] reading message", ret, erl_errno );
             ei_x_free( x );
             efree( x );
             RETURN_FALSE;
