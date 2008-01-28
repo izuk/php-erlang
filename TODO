@@ -1,0 +1,25 @@
+PHP/Erlang
+
+Copyright 2008 Itai Zukerman
+
+TODO
+
+* Better error checking in erlang_term().
+* Better error checking in erlang_extract().
+* Implement ~w in erlang_term().
+* Shortcuts for erlang_send() and erlang_receive() so you don't need
+  to use erlang_term() and erlang_extract().
+* Maybe support multiple nodes.  Maybe.
+
+BUGS
+
+* ~t doesn't work in erlang_term().
+
+CAUTION
+
+If you don't call erlang_receive() every minute or so to respond to
+TICK messages, the Erlang side thinks you've timed out and
+disconnects you.  erlang_init() handles this, so if you suspect that
+your PHP code will be busy doing something for more than 1 minute,
+you *must* call erlang_init() again before trying to use the other
+erlang functions, and at that point you'll have a new PID.
