@@ -1,0 +1,136 @@
+PHP/Erlang 0.0.1
+
+Copyright 2008 Itai Zukerman
+
+INTRODUCTION
+
+PHP/Erlang aims to be a PHP extension with a simple set of functions
+for turning a PHP thread into an Erlang C-node.  With this extension,
+you can shift backend tasks to Erlang, where they belong:  caching,
+chat, database proxying, everything.
+
+PHP/Erlang is released under the LPGL.  See COPYING and COPYING.LESSER
+for details.
+
+INSTALLATION
+
+Requirements.
+
+You must have both the PHP and Erlang development headers and
+the Erlang ei (and possibly erl_interface) libraries.  In Debian
+systems these are provided by php5-dev and erlang-dev.
+
+Building.
+
+  $ phpize
+  $ ./configure --enable-erlang
+  $ make
+
+Installation.
+
+  $ cp modules/erlang.so /path/to/php5/modules
+
+Edit php.ini and add:
+
+  extension=erlang.so
+  erlang.node=node@host
+  erlang.cookie=secret
+
+replacing node@host with your local Erlang node, and erlang.cookie
+with the secret cookie for that node.
+
+USAGE
+
+This extension provides these functions:
+
+erlang_init()
+
+  Must be called before any other erlang functions.  This insures that
+  we have a (persistent) connection to the node defined in the php.ini.
+
+erlang_self()
+
+  Return the PID of the PHP C-node as a resource.
+
+erlang_term( $format, $params )
+
+  Build an Erlang term from a format string and an array of params.
+  The format string specifies the structure of the term with "{", "}",
+  "[", "|", and "]" chars, and includes values from the params with:
+
+     ~a atom
+     ~s string
+     ~l long
+     ~d double
+     ~p PID
+
+  Params are used in the order in which they appear in the format
+  string.  For example:
+
+    erlang_term( "{~a,~s}", array( "search", "apples" ) );
+    erlang_term( "{~a,[~s,~s,~s]}", array( "names", "bob", "joe", "marge" ) );
+    erlang_term( "{~p,~a,~d}", array( erlang_self(), "sqrt", 153 ) );
+
+erlang_extract( $term )
+
+  Take an Erlang term from erlang_receive() or constructed with
+  erlang_term() and turn it into PHP data.  Tuples and lists are
+  turned into arrays, strings, longs, and doubles into the
+  corresponding values, and PIDs into PID resources.  For example:
+
+    erlang_extract( {ok,["a","b"]} ) => array( "ok", array( "a", "b" ) )
+    erlang_extract( {sqrt,123.4} ) => array( "sqrt", 123.4 )
+
+erlang_receive( [ $timeout ] )
+
+  Wait for an Erlang term for up to timeout milliseconds.  On timeout
+  or error, return FALSE.  Otherwise return a term to be decoded with
+  erlang_extract().
+
+erlang_send( $pid, $term [, $timeout ] )
+
+  Send a term (probably constructed with erlang_term()) to the PID,
+  waiting at most timeout milliseconds for success, returning FALSE on
+  error.
+
+erlang_send_reg( $name, $term [, $timeout ] )
+
+  Send a term (probably constructed with erlang_term()) to the
+  registered name, waiting at most timeout milliseconds for success,
+  returning FALSE on error.
+
+EXAMPLE
+
+On the Erlang side:
+
+  -module( echo ).
+  -export( [ start/0, echo/0 ] ).
+
+  start() ->
+      register( echo, spawn( ?MODULE, echo, [ ] ) ).
+
+  echo() ->
+      receive
+          { Pid, X } ->
+              Pid ! X,
+              echo();
+          quit -> ok
+      end.
+    
+
+On the PHP side:
+
+    erlang_init();
+    $self = erlang_self();
+    for( $i = 0; $i < 4; $i++ ) {
+        $message = erlang_term( "{~p,~s}", array( $self, "foo{$i}" ) );
+        erlang_send_reg( "echo", $message, 100 );
+    }
+    for( $i = 0; $i < 4; $i++ ) {
+        $message = erlang_receive( 100 );
+        if( $message !== FALSE ) {
+            print_r( erlang_extract( $message ) );
+        } else {
+            echo( "No message received!\n" );
+        }
+    }
