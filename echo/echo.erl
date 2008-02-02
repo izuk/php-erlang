@@ -25,7 +25,7 @@ start() ->
 echo() ->
     receive
         { Pid, X } ->
-            io:fwrite( "Got `~w'.~n", [ X ] ),
+            io:fwrite( "Got ~p.~n", [ X ] ),
             Pid ! X,
             echo();
         quit -> ok

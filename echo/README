@@ -1,0 +1,15 @@
+Start the erlang side with:
+
+  $ erl -name erts
+
+  (erts@localhost)1> c(echo).
+  (erts@localhost)2> echo:start().
+
+Then run the test script:
+
+  $ php test.php
+
+Make sure you set up these PHP ini constants correctly:
+
+  erlang.node
+  erlang.cookie

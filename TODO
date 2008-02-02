@@ -1,7 +1,5 @@
 PHP/Erlang
 
-Copyright 2008 Itai Zukerman
-
 TODO
 
 * Better error checking in erlang_term().
@@ -9,11 +7,12 @@ TODO
 * Implement ~w in erlang_term().
 * Shortcuts for erlang_send() and erlang_receive() so you don't need
   to use erlang_term() and erlang_extract().
+* Support for references.
 * Maybe support multiple nodes.  Maybe.
 
 BUGS
 
-* ~t doesn't work in erlang_term().
+* ?
 
 CAUTION
 
@@ -22,4 +21,5 @@ TICK messages, the Erlang side thinks you've timed out and
 disconnects you.  erlang_init() handles this, so if you suspect that
 your PHP code will be busy doing something for more than 1 minute,
 you *must* call erlang_init() again before trying to use the other
-erlang functions, and at that point you'll have a new PID.
+erlang functions, and at that point you'll have a new PID so any
+messages for the old PID will be lost.

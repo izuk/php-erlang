@@ -122,7 +122,8 @@ PHP_FUNCTION(erlang_init)
     fd = ERLANG_G(fd);
 
     if( fd > 0 ) {
-        // Check connection.
+        // Check connection.  There must be a better way to do this.
+        // Doesn't this eat up valuable time?
         php_error( E_NOTICE, "checking connection" );
         while( 1 ) {
             ret = ei_receive_tmo( fd, buff, 100, 1 );
@@ -139,7 +140,16 @@ PHP_FUNCTION(erlang_init)
 
     if( fd == 0 ) {
 
-        sprintf( buff, "php%010d%05d", (int) getpid(), ERLANG_G(instance)++ );
+        // Connecting seems to sometimes fail without the "instance"
+        // number if this node has recently timed out.  Perhaps the Erlang side
+        // doesn't like it if a node times out and then tries to reconnect with the
+        // same name?
+
+        // On the other hand, I've been told that these node names don't get
+        // garbage collected.  Maybe I should roll instance over after some
+        // small number?
+
+        snprintf( buff, 100, "php%010d%05d", (int) getpid(), ERLANG_G(instance)++ );
         ei_connect_init( & ERLANG_G(ec), buff, INI_STR("erlang.cookie"), 0 );
 
         php_error( E_NOTICE, "init %s %s %s",

@@ -57,7 +57,6 @@ zval * php_erlang_decode( ei_x_buff * x ) {
     case ERL_PID_EXT:
         buff = emalloc( sizeof( erlang_pid ) );
         ei_decode_pid( x->buff, & x->index, (erlang_pid *) buff );
-        ALLOC_INIT_ZVAL(z);
         ZEND_REGISTER_RESOURCE(z, buff, le_erlang_pid);
         break;
 

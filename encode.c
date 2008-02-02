@@ -26,6 +26,7 @@ int php_erlang_encode_prim( ei_x_buff * x, int type, zval ** zp );
 
 #define FMT_MOVE( n ) *idx = *idx + n
 #define FMT_CHAR fmt[ *idx ]
+/* #define FMT_NEXT_CHAR( ch ) ch = fmt[ *idx ]; php_error( E_NOTICE, "read %c", ch ); FMT_MOVE( 1 ) */
 #define FMT_NEXT_CHAR( ch ) ch = fmt[ *idx ]; FMT_MOVE( 1 )
 
 int php_erlang_encode_term( ei_x_buff * x, char * fmt, int * idx, HashTable * arr, HashPosition * point ) {
@@ -39,10 +40,17 @@ int php_erlang_encode_term( ei_x_buff * x, char * fmt, int * idx, HashTable * ar
 
     FMT_NEXT_CHAR( ch );
 
-    // Special case: empty list.
-    if( ch == '[' && FMT_CHAR == ']' ) {
+    // Special case, empty tuple.
+    if( ch == '{' && FMT_CHAR == '}' ) {
+        ei_x_encode_tuple_header( x, 0 );
         FMT_MOVE( 1 );
+        return 0;
+    }
+
+    // Special case, empty list.
+    if( ch == '[' && FMT_CHAR == ']' ) {
         ei_x_encode_empty_list( x );
+        FMT_MOVE( 1 );
         return 0;
     }
 
@@ -60,9 +68,7 @@ int php_erlang_encode_term( ei_x_buff * x, char * fmt, int * idx, HashTable * ar
             FMT_NEXT_CHAR( ch );
             if( ch == '}' ) {
                 ei_x_encode_tuple_header( x, n );
-                if( n > 0 ) {
-                    ei_x_append( x, & xsub );
-                }
+                ei_x_append( x, & xsub );
                 ei_x_free( & xsub );
             } else {
                 ei_x_free( & xsub );
@@ -71,18 +77,21 @@ int php_erlang_encode_term( ei_x_buff * x, char * fmt, int * idx, HashTable * ar
         } else {
             // List.
             FMT_NEXT_CHAR( ch );
-            if( ch == ']' || ch == '|' ) {
+            if( ch == '|' ) {
+                if( php_erlang_encode_term( & xsub, fmt, idx, arr, point ) < 0 ) {
+                    ei_x_free( & xsub );
+                    return -1;
+                }
+                // FIXME: Should make sure the term was a list.
+                FMT_NEXT_CHAR( ch );
+            } else {
+                // Terminate the list.
+                ei_x_encode_empty_list( & xsub );
+            }
+            if( ch == ']' ) {
                 ei_x_encode_list_header( x, n );
                 ei_x_append( x, & xsub );
                 ei_x_free( & xsub );
-                if( ch == '|' ) {
-                    // FIXME: Should make sure the term was a list.
-                    if( php_erlang_encode_term( x, fmt, idx, arr, point ) < 0 ) {
-                        return -1;
-                    }
-                } else {
-                    ei_x_encode_empty_list( x );
-                }
             } else {
                 ei_x_free( & xsub );
                 return -1;
@@ -109,7 +118,7 @@ int php_erlang_encode_term_list( ei_x_buff * x, char * fmt, int * idx, HashTable
     int ch;
     int n = 0;
 
-    // FIXME: Should work for length-0 lists.
+    // FIXME:  We don't support empty tuples or lists.
     if( php_erlang_encode_term( x, fmt, idx, arr, point ) < 0 ) {
         return -1;
     }
@@ -127,6 +136,10 @@ int php_erlang_encode_term_list( ei_x_buff * x, char * fmt, int * idx, HashTable
 }
 
 int php_erlang_encode_prim( ei_x_buff * x, int type, zval ** zp ) {
+
+    ei_x_buff * x_with_version, x_no_version;
+    int idx, version;
+
     switch( type ) {
     case 'a':
         if( Z_TYPE_PP( zp ) != IS_STRING ) { return -1; }
@@ -152,7 +165,14 @@ int php_erlang_encode_prim( ei_x_buff * x, int type, zval ** zp ) {
     case 't':
         if( Z_TYPE_PP( zp ) != IS_RESOURCE ) { return -1; }
         // For now, assume we have the right resource.
-        ei_x_append( x, (ei_x_buff *) zend_fetch_resource( zp TSRMLS_CC, -1, PHP_ERLANG_X_BUFF_RES_NAME, NULL, 1, le_erlang_x_buff ) );
+        // We need to remove the leading version.
+        x_with_version = (ei_x_buff *) zend_fetch_resource( zp TSRMLS_CC, -1, PHP_ERLANG_X_BUFF_RES_NAME, NULL, 1, le_erlang_x_buff );
+        x_no_version = * x_with_version;
+        idx = 0;
+        if( ei_decode_version( x_with_version->buff, & idx, & version ) == 0 ) {
+            x_no_version.buff += idx;
+        }
+        ei_x_append( x, & x_no_version );
         break;
     default:
         return -1;
