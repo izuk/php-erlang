@@ -145,23 +145,33 @@ int php_erlang_encode_prim( ei_x_buff * x, int type, zval ** zp ) {
         if( Z_TYPE_PP( zp ) != IS_STRING ) { return -1; }
         ei_x_encode_atom( x, Z_STRVAL_PP( zp ) );
         break;
+
     case 's':
         if( Z_TYPE_PP( zp ) != IS_STRING ) { return -1; }
         ei_x_encode_string_len( x, Z_STRVAL_PP( zp ), Z_STRLEN_PP( zp ) );
         break;
+
+    case 'b':
+        if( Z_TYPE_PP( zp ) != IS_STRING ) { return -1; }
+        ei_x_encode_binary( x, Z_STRVAL_PP( zp ), Z_STRLEN_PP( zp ) );
+        break;
+
     case 'l':
         if( Z_TYPE_PP( zp ) != IS_LONG ) { return -1; }
         ei_x_encode_long( x, Z_LVAL_PP( zp ) );
         break;
+
     case 'd':
         if( Z_TYPE_PP( zp ) != IS_DOUBLE ) { return -1; }
         ei_x_encode_double( x, Z_DVAL_PP( zp ) );
         break;
+
     case 'p':
         if( Z_TYPE_PP( zp ) != IS_RESOURCE ) { return -1; }
         // For now, assume we have the right resource.
         ei_x_encode_pid( x, (erlang_pid *) zend_fetch_resource( zp TSRMLS_CC, -1, PHP_ERLANG_PID_RES_NAME, NULL, 1, le_erlang_pid ) );
         break;
+
     case 't':
         if( Z_TYPE_PP( zp ) != IS_RESOURCE ) { return -1; }
         // For now, assume we have the right resource.
@@ -174,6 +184,7 @@ int php_erlang_encode_prim( ei_x_buff * x, int type, zval ** zp ) {
         }
         ei_x_append( x, & x_no_version );
         break;
+
     default:
         return -1;
     }

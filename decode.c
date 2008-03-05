@@ -30,6 +30,7 @@ zval * php_erlang_decode( ei_x_buff * x ) {
 
     char * buff;
 
+    long len;
     long long_value;
     double double_value;
 
@@ -52,6 +53,12 @@ zval * php_erlang_decode( ei_x_buff * x ) {
         ei_decode_string( x->buff, & x->index, buff );
         buff[ size ] = '\0';
         ZVAL_STRING(z, buff, 0);
+        break;
+
+    case ERL_BINARY_EXT:
+        buff = emalloc( size );
+        ei_decode_binary( x->buff, & x->index, buff, & len );
+        ZVAL_STRINGL(z, buff, size, 0);
         break;
 
     case ERL_PID_EXT:
@@ -99,7 +106,6 @@ zval * php_erlang_decode( ei_x_buff * x ) {
     case ERL_REFERENCE_EXT:
     case ERL_NEW_REFERENCE_EXT:
     case ERL_PORT_EXT:
-    case ERL_BINARY_EXT:
     case ERL_SMALL_BIG_EXT:
     case ERL_LARGE_BIG_EXT:
     case ERL_NEW_FUN_EXT:
