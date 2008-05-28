@@ -30,7 +30,7 @@
     $subterm = erlang_term( "[~s,~s]", array( "a", "b" ) );
 
     for( $i = 0; $i < 4; $i++ ) {
-        $message = erlang_term( "{~p,{~s,~t}}", array( $self, "foo{$i}", $term ) );
+        $message = erlang_term( "{~p,{~s,~t}}", array( $self, "foo{$i}", $subterm ) );
         erlang_send_reg( "echo", $message, 100 );
     }
     for( $i = 0; $i < 4; $i++ ) {
