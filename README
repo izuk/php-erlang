@@ -62,9 +62,11 @@ erlang_term( $format, $params )
 
      ~a atom
      ~s string
+     ~b binary
      ~l long
      ~d double
      ~p PID
+     ~t an Erlang term
 
   Params are used in the order in which they appear in the format
   string.  For example:
@@ -72,6 +74,7 @@ erlang_term( $format, $params )
     erlang_term( "{~a,~s}", array( "search", "apples" ) );
     erlang_term( "{~a,[~s,~s,~s]}", array( "names", "bob", "joe", "marge" ) );
     erlang_term( "{~p,~a,~d}", array( erlang_self(), "sqrt", 153 ) );
+    erlang_term( "{~a,~t}", array( "item", erlang_term( "{~s}", array( "something" ) ) ) );
 
 erlang_extract( $term )
 
