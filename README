@@ -1,7 +1,5 @@
 PHP/Erlang 0.0.3
 
-Sat, 02 Feb 2008
-
 Copyright 2008 Itai Zukerman <zukerman@math-hat.com>
 
 INTRODUCTION
@@ -140,3 +138,14 @@ On the PHP side:
         }
     }
 
+DEBUGGING
+
+To trace the Erlang connects, sends, receives, etc., try this:
+
+  $ export EI_TRACELEVEL=8
+
+before running Apache or your PHP script.  It invokes debugging within
+the Erlang library, which should (I think) show up in your Apache/PHP
+error logs or in stderr.
+
+$Date$
